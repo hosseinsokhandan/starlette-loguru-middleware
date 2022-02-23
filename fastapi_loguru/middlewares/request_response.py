@@ -1,4 +1,5 @@
-from loguru import logger
+from loguru import logger as loguru_logger
+from logging import Logger
 from http import HTTPStatus
 from typing import Callable, List, Optional
 from fastapi import FastAPI, Request, Response
@@ -8,10 +9,13 @@ import sys
 
 
 class RequestResponseLoggerMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: FastAPI, skip_routes: Optional[List] = []):
+    def __init__(self, app: FastAPI, *, logger: Optional[Logger] = None, skip_routes: Optional[List] = []):
         self._skip_routes = skip_routes
         self.logger = logger
-        self.logger.add(sys.stdout, level="INFO", colorize=True)
+        if not self.logger:
+            self.logger = loguru_logger
+            fmt = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <level>{message}</level>"
+            self.logger.add(sys.stdout, level="INFO", format=fmt)
         super().__init__(app)
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -34,4 +38,5 @@ class RequestResponseLoggerMiddleware(BaseHTTPMiddleware):
 
     def _generate_log(self, *, request: Request, response: Response, response_time: float) -> str:
         status = response.status_code
-        return f"{request.method} {request.url.path} {status} {HTTPStatus(status).name} {response_time}"
+        response_time *= 1000
+        return f"{request.method} {request.url.path} {status} {HTTPStatus(status).name} {int(response_time)}ms"
