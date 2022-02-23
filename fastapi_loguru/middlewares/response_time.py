@@ -7,26 +7,25 @@ import time
 import sys
 
 
-
 class RequestResponseLoggerMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: FastAPI, skip_routes: Optional[List] = []):
         self._skip_routes = skip_routes
         self.logger = logger
-        logger.add(sys.stdout, level="INFO", colorize=True)
+        self.logger.add(sys.stdout, level="INFO", colorize=True)
         super().__init__(app)
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        if self._check_route_should_skip(request):
+        if self._should_skip_route(request):
             return await call_next(request)
-        return await self.log_it(request=request, call_next=call_next)
+        return await self._log_it(request=request, call_next=call_next)
 
-    def _check_route_should_skip(self, request: Request) -> bool:
+    def _should_skip_route(self, request: Request) -> bool:
         for path in self._skip_routes:
             if request.url.path.startswith(path):
                 return True
         return False
 
-    async def log_it(self, *, request: Request, call_next: Callable) -> Response:
+    async def _log_it(self, *, request: Request, call_next: Callable) -> Response:
         begin = time.perf_counter()
         response = await call_next(request)
         end = time.perf_counter()
