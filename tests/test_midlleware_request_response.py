@@ -1,45 +1,69 @@
-from fastapi import Response
-from fastapi.testclient import TestClient
-from fastapi_loguru.middlewares.request_response import RequestResponseLoggerMiddleware
-from loguru import logger
-from tests.request_response.app import app
 from unittest import TestCase
 
-filename = "tests/request_response/req_res_middle.log"
-fmt = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <level>{message}</level>"
-logger.add(filename, level="INFO", format=fmt)
+import pytest
+from fastapi import FastAPI, Response
+from fastapi.testclient import TestClient
+from loguru import logger
 
-app.add_middleware(RequestResponseLoggerMiddleware, logger=logger)
+from fastapi_loguru.middlewares import RequestResponseLoggerMiddleware
 
-client = TestClient(app)
 
 class TestRequestResoponseLoggerMiddleware(TestCase):
+    filename = "tests.loguru.log"
+    logger = logger
+
+    def setUp(self) -> None:
+        super().setUp()
+        ftm = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <level>{message}</level>"
+        self.logger.add(self.filename, level="INFO", format=ftm)
 
     def tearDown(self) -> None:
         super().tearDown()
-        with open(filename, "r+") as f:
+        with open(self.filename, "r+") as f:
             f.truncate(0)
 
-        """
-            2022-02-23 15:51:41.455 | INFO     | GET /failure 400 BAD_REQUEST 0ms
-            2022-02-23 15:51:41.459 | INFO     | GET /success 200 OK 0ms
-        """
+    @pytest.fixture(autouse=True)
+    def add_app(self):
+        app = FastAPI()
 
-    def test_req_res_time_success(self):
-        response: Response = client.get(url="/success")
+        @app.get("/success", status_code=200)
+        async def success():
+            return {"message": "responded with success."}
+
+        @app.get("/failure", status_code=400)
+        async def failure():
+            return {"message": "responded with failure."}
+
+        @app.get("/skip", status_code=500)
+        async def skip():
+            return {"message": "responded with skip."}
+
+        skip_routes = ["/skip"]
+        app.add_middleware(RequestResponseLoggerMiddleware, logger=self.logger, skip_routes=skip_routes)
+
+        self.client = TestClient(app)
+
+    def test_req_res_loguru_success(self):
+        response: Response = self.client.get(url="/success")
         self.assertEqual(response.status_code, 200)
-        with open(filename) as f:
+        with open(self.filename) as f:
             line: str = f.readline().strip()
             line: list = line.split(" | ")
             self.assertEqual(line[1], "INFO    ")
-            self.assertEqual(line[2], "GET /success 200 OK 0ms")
+            self.assertIn("GET /success 200 OK", line[2])
 
-
-    def test_req_res_time_failure(self):
-        response: Response = client.get(url="/failure")
+    def test_req_res_loguru_failure(self):
+        response: Response = self.client.get(url="/failure")
         self.assertEqual(response.status_code, 400)
-        with open(filename) as f:
+        with open(self.filename) as f:
             line: str = f.readline().strip()
             line: list = line.split(" | ")
             self.assertEqual(line[1], "INFO    ")
-            self.assertEqual(line[2], "GET /failure 400 BAD_REQUEST 0ms")
+            self.assertIn("GET /failure 400 BAD_REQUEST", line[2])
+
+    def test_req_res_loguru_skip_routes(self):
+        response: Response = self.client.get(url="/skip")
+        self.assertEqual(response.status_code, 500)
+        with open(self.filename) as f:
+            line: str = f.readline().strip()
+            self.assertEqual(line, "")  # no log found, that's correct.
